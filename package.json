@@ -4,11 +4,11 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
-   "dev": "vite",               
-  "build": "node tools/generate-llms.js || true && vite build",  
+  "dev": "vite",
+  "build": "node tools/generate-llms.js || true && vite build",
   "preview": "vite preview",
-  "start": "vite"              
-  },
+  "start": "vite"
+},
   "dependencies": {
     "@radix-ui/react-alert-dialog": "^1.0.5",
     "@radix-ui/react-avatar": "^1.0.3",
