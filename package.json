@@ -10,7 +10,9 @@
   "start": "vite",
     "postinstall": "chmod +x node_modules/.bin/vite"
 },
-
+"engines": {
+  "node": "18.x"
+},
   "dependencies": {
     "@radix-ui/react-alert-dialog": "^1.0.5",
     "@radix-ui/react-avatar": "^1.0.3",
