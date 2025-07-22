@@ -4,10 +4,10 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
-    "dev": "vite",
-  "build": "react-scripts build",
-    "preview": "vite preview",
-    "start": "react-scripts start"
+   "dev": "vite",               
+  "build": "node tools/generate-llms.js || true && vite build",  
+  "preview": "vite preview",
+  "start": "vite"              
   },
   "dependencies": {
     "@radix-ui/react-alert-dialog": "^1.0.5",
