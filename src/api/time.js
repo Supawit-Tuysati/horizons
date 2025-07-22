@@ -29,19 +29,15 @@ export async function getTimeEntries(user_id) {
 export async function getTimeWorkToDay(user_id) {
   const now = new Date();
 
-  // ช่วงเวลาวันนี้ UTC
   const startOfDayUTC = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0));
   const endOfDayUTC = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999));
-
-  const startOfDayISOString = startOfDayUTC.toISOString();
-  const endOfDayISOString = endOfDayUTC.toISOString();
 
   const { data, error } = await supabase
     .from("time_entries")
     .select("*")
     .eq("user_id", user_id)
-    .gte("timestamp", startOfDayISOString)
-    .lte("timestamp", endOfDayISOString)
+    .gte("timestamp", startOfDayUTC.toISOString())
+    .lte("timestamp", endOfDayUTC.toISOString())
     .order("timestamp", { ascending: true });
 
   if (error) {
@@ -49,59 +45,78 @@ export async function getTimeWorkToDay(user_id) {
     return { totalHours: 0, totalMinutes: 0, sessions: [], breaks: [] };
   }
 
-  const sessions = [];
+  let checkInTime = null;
+  let checkOutTime = null;
   const breaks = [];
 
-  let checkInTime = null;
   let breakStartTime = null;
 
   for (const entry of data) {
-    if (entry.action === "checkin") {
-      checkInTime = new Date(entry.timestamp);
-    } else if (entry.action === "checkout" && checkInTime) {
-      const checkOutTime = new Date(entry.timestamp);
-      // ใช้การคำนวณแบบ truncate เพื่อความแม่นยำ
-      const diffMs = checkOutTime.getTime() - checkInTime.getTime();
-      const sessionMinutes = Math.trunc(diffMs / (1000 * 60));
-      sessions.push({
-        start: checkInTime,
-        end: checkOutTime,
-        minutes: sessionMinutes,
-      });
-      checkInTime = null;
-    } else if (entry.action === "break_start") {
-      breakStartTime = new Date(entry.timestamp);
-    } else if (entry.action === "break_end" && breakStartTime) {
-      const breakEndTime = new Date(entry.timestamp);
-      // ใช้การคำนวณแบบ truncate เพื่อความแม่นยำ
-      const diffMs = breakEndTime.getTime() - breakStartTime.getTime();
-      const breakMinutes = Math.trunc(diffMs / (1000 * 60));
-      breaks.push({
-        start: breakStartTime,
-        end: breakEndTime,
-        minutes: breakMinutes,
-      });
-      breakStartTime = null;
+    const entryTime = new Date(entry.timestamp);
+
+    switch (entry.action) {
+      case "checkin":
+        checkInTime = entryTime;
+        break;
+
+      case "checkout":
+        checkOutTime = entryTime;
+        break;
+
+      case "break_start":
+        breakStartTime = entryTime;
+        break;
+
+      case "break_end":
+        if (breakStartTime) {
+          breaks.push({
+            start: breakStartTime,
+            end: entryTime,
+          });
+          breakStartTime = null;
+        }
+        break;
     }
   }
 
-  // รวมเวลาทำงาน
-  const totalSessionMinutes = sessions.reduce((sum, s) => sum + s.minutes, 0);
-  // รวมเวลาพัก
-  const totalBreakMinutes = breaks.reduce((sum, b) => sum + b.minutes, 0);
-  // เวลาทำงานจริง = เวลาทำงาน - เวลาพัก
-  const netMinutes = Math.max(totalSessionMinutes - totalBreakMinutes, 0);
+  if (!checkInTime) {
+    return { totalHours: 0, totalMinutes: 0, sessions: [], breaks: [] };
+  }
 
-  const totalHours = Math.floor(netMinutes / 60);
-  const remainingMinutes = netMinutes % 60;
+  const endTime = checkOutTime || now;
+
+  // ถ้ายังพักอยู่ ให้ถือว่า end = checkout หรือ now
+  if (breakStartTime) {
+    breaks.push({
+      start: breakStartTime,
+      end: endTime,
+    });
+  }
+
+  // รวมเวลาพักเฉพาะที่อยู่ในช่วง checkin ถึง checkout
+  const totalBreakMinutes = breaks.reduce((sum, b) => {
+    const start = b.start < checkInTime ? checkInTime : b.start;
+    const end = b.end > endTime ? endTime : b.end;
+    const diffMs = Math.max(0, end - start);
+    return sum + Math.trunc(diffMs / 60000);
+  }, 0);
+
+  const totalWorkMinutes = Math.trunc((endTime - checkInTime) / 60000);
+  const netMinutes = Math.max(totalWorkMinutes - totalBreakMinutes, 0);
 
   return {
-    totalHours,
-    totalMinutes: remainingMinutes,
-    sessions,
-    breaks,
+    totalHours: Math.floor(netMinutes / 60),
+    totalMinutes: netMinutes % 60,
+    sessions: [{ start: checkInTime, end: endTime, minutes: totalWorkMinutes }],
+    breaks: breaks.map((b) => ({
+      start: b.start,
+      end: b.end,
+      minutes: Math.trunc((b.end - b.start) / 60000),
+    })),
   };
 }
+
+
 
 
 export async function logTimeEntry(

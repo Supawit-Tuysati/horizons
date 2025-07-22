@@ -2,11 +2,27 @@ import React, { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Helmet } from "react-helmet";
 import Layout from "@/components/Layout";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle,} from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/use-toast";
 import { useNavigate } from "react-router-dom";
-import { Clock, Calendar, MapPin, Coffee, Home, Building2, TrendingUp, Users, CheckCircle,} from "lucide-react";
+import {
+  Clock,
+  Calendar,
+  MapPin,
+  Coffee,
+  Home,
+  Building2,
+  TrendingUp,
+  Users,
+  CheckCircle,
+} from "lucide-react";
 import { getTimeWorkToDay } from "../api/time";
 import { useAuth } from "../contexts/AuthContext";
 
@@ -30,33 +46,36 @@ const Dashboard = () => {
     }
   };
 
-useEffect(() => {
-  const timer = setInterval(() => {
-    setCurrentTime(new Date());
-  }, 1000);
+  useEffect(() => {
+    const clockTimer = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 1000);
+    return () => clearInterval(clockTimer);
+  }, []);
 
-  const fetchTimeToday = async () => {
-    if (user?.id) {
+  useEffect(() => {
+    if (!user?.id) return;
+    const fetchTime = async () => {
       try {
         const result = await getTimeWorkToDay(user.id);
-
         const { totalHours, totalMinutes } = result;
         const formattedTime = `${totalHours}:${totalMinutes
           .toString()
           .padStart(2, "0")} ชั่วโมง`;
         setTodayHours(formattedTime);
-      } catch (error) {
-        console.error("Error fetching time today:", error);
+      } catch (err) {
+        console.error("Error fetching time:", err);
         setTodayHours("0.00 ชั่วโมง");
       }
-    }
-  };
+    };
 
-  fetchTimeToday();
+    fetchTime(); // รันรอบแรกก่อน
 
-  return () => clearInterval(timer);
-}, [user?.id]);
+    // Timer: ดึงใหม่ทุก 1 นาที
+    const fetchTimer = setInterval(fetchTime, 60 * 1000);
 
+    return () => clearInterval(fetchTimer);
+  }, [user?.id]);
 
   const quickActions = [
     {
@@ -104,7 +123,12 @@ useEffect(() => {
     },
     {
       title: "สถานะปัจจุบัน",
-      value: workStatus === "online" ? "ทำงาน" : workStatus === "break" ? "พักเบรก" : "ออฟไลน์", 
+      value:
+        workStatus === "online"
+          ? "ทำงาน"
+          : workStatus === "break"
+          ? "พักเบรก"
+          : "ออฟไลน์",
       icon: Users,
       color: "text-purple-400",
     },
