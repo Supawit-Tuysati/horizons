@@ -30,9 +30,10 @@ const Dashboard = () => {
   const navigate = useNavigate();
   const [currentTime, setCurrentTime] = useState(new Date());
   const { workStatus } = useState("offline");
-  const [todayHours, setTodayHours] = useState("0:00");
   const { toast } = useToast();
   const { user } = useAuth();
+  const [entries, setEntries] = useState([]);
+  const [todayHours, setTodayHours] = useState("0.00 ชั่วโมง");
 
   const handleQuickAction = (system_status, action) => {
     if (system_status === "develop") {
@@ -53,29 +54,102 @@ const Dashboard = () => {
     return () => clearInterval(clockTimer);
   }, []);
 
+  const calculateWorkTime = (entries) => {
+    // ฟังก์ชันคำนวณเวลาทำงานจากรายการ entries
+    // ตัวแปรสำหรับเก็บเวลาต่างๆ
+    let checkIn = null; // เวลาเข้างาน
+    let checkOut = null; // เวลาออกงาน
+    let breakStart = null; // เวลาเริ่มพัก (ชั่วคราว)
+    const breaks = []; // อาร์เรย์เก็บช่วงเวลาพักทั้งหมด
+
+    // วนลูปผ่าน entries ทั้งหมดเพื่อจัดกลุ่มตาม action
+    for (const entry of entries) {
+      const t = new Date(entry.timestamp); // แปลง timestamp เป็น Date object
+
+      switch (entry.action) {
+        case "checkin":
+          checkIn = t; // บันทึกเวลาเข้างาน
+          break;
+        case "checkout":
+          checkOut = t; // บันทึกเวลาออกงาน
+          break;
+        case "break_start":
+          breakStart = t; // บันทึกเวลาเริ่มพัก
+          break;
+        case "break_end":
+          // ถ้ามี breakStart แล้ว ให้สร้างช่วงเวลาพัก
+          if (breakStart) {
+            breaks.push({ start: breakStart, end: t });
+            breakStart = null; // reset ค่า
+          }
+          break;
+      }
+    }
+
+    // ถ้าไม่มีการเข้างาน ให้คืนค่า 0
+    if (!checkIn) return "0.00 ชั่วโมง";
+
+    // กำหนดเวลาสิ้นสุด (ถ้ายังไม่ได้ checkout ให้ใช้เวลาปัจจุบัน)
+    const now = new Date();
+    const end = checkOut || now;
+
+    // ถ้ายังอยู่ในช่วงพัก (breakStart มีค่า) ให้นับเป็นช่วงพักด้วย
+    if (breakStart) {
+      breaks.push({ start: breakStart, end });
+    }
+
+    // คำนวณเวลาพักรวม (หน่วย: นาที)
+    const totalBreak = breaks.reduce(
+      (acc, b) => acc + Math.max(0, (b.end - b.start) / 60000), // แปลง milliseconds เป็นนาที
+      0
+    );
+
+    // คำนวณเวลาทำงานสุทธิ = เวลาทั้งหมด - เวลาพัก
+    const totalWork = Math.max(0, (end - checkIn) / 60000 - totalBreak);
+
+    // แปลงเป็นชั่วโมงและนาที
+    const hours = Math.floor(totalWork / 60); // ชั่วโมงเต็ม
+    const minutes = Math.floor(totalWork % 60); // นาทีที่เหลือ (ปัดลง)
+
+    // ส่งคืนในรูปแบบ "ชั่วโมง:นาที ชั่วโมง"
+    return `${hours}:${minutes.toString().padStart(2, "0")} ชั่วโมง`;
+  };
+
+  // useEffect แรก: ดึงข้อมูลเริ่มต้นเมื่อ user.id เปลี่ยน
   useEffect(() => {
-    if (!user?.id) return;
-    const fetchTime = async () => {
+    if (!user?.id) return; // ถ้าไม่มี user id ให้หยุด
+
+    const fetchInitialTime = async () => {
       try {
-        const result = await getTimeWorkToDay(user.id);
-        const { totalHours, totalMinutes } = result;
-        const formattedTime = `${totalHours}:${totalMinutes
-          .toString()
-          .padStart(2, "0")} ชั่วโมง`;
+        // ดึงข้อมูลการทำงานของวันนี้
+        const data = await getTimeWorkToDay(user.id);
+        setEntries(data); // เก็บ entries ไว้ใน state
+
+        // คำนวณและแสดงเวลาทำงาน
+        const formattedTime = calculateWorkTime(data);
         setTodayHours(formattedTime);
       } catch (err) {
-        console.error("Error fetching time:", err);
-        setTodayHours("0.00 ชั่วโมง");
+        console.error("Error:", err);
+        setTodayHours("0.00 ชั่วโมง"); // ถ้าเกิดข้อผิดพลาด แสดง 0
       }
     };
 
-    fetchTime(); // รันรอบแรกก่อน
-
-    // Timer: ดึงใหม่ทุก 1 นาที
-    const fetchTimer = setInterval(fetchTime, 60 * 1000);
-
-    return () => clearInterval(fetchTimer);
+    fetchInitialTime();
   }, [user?.id]);
+
+  // useEffect ที่สอง: อัปเดตเวลาทำงานแบบ real-time
+  useEffect(() => {
+    if (entries.length === 0) return; // ถ้าไม่มี entries ให้หยุด
+
+    // ตั้งตัวจับเวลาให้คำนวณใหม่ทุกนาที
+    const interval = setInterval(() => {
+      const formattedTime = calculateWorkTime(entries); // ใช้ข้อมูล entries เดิม
+      setTodayHours(formattedTime); // อัปเดต UI
+    }, 60 * 1000); // ทุก 60 วินาที (1 นาที)
+
+    // ล้าง interval เมื่อ component unmount หรือ entries เปลี่ยน
+    return () => clearInterval(interval);
+  }, [entries]);
 
   const quickActions = [
     {
